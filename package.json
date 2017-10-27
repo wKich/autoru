@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "micro",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,6 +14,7 @@
     "bluebird": "^3.5.1",
     "cheerio": "^1.0.0-rc.2",
     "express": "^4.16.2",
+    "micro": "^9.0.0",
     "mongodb": "^2.2.33",
     "request": "^2.83.0",
     "request-promise": "^4.2.2",
