@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Auto.ru</title>
+  </head>
+  <body>
+    <div id="counter"></div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io()
+      const counter = document.getElementById('counter')
+      socket.on('counter', msg => counter.innerHTML = msg.counter)
+    </script>
+  </body>
+</html>
