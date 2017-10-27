@@ -3,10 +3,14 @@
 /*
 Нужная инфа
 #sale-data-attributes -> data-bem -> JSON.parse (Инфа о машинке)
-.breadcrumbs-item -> data-bem -> JSON.parse (Классификация)
-.card__info -> dt - dd
-.seller-details__text -> innerText
-.card__package-title + .card__package-item
+.breadcrumbs-item -> data-bem -> JSON.parse (Классификация API)
+.card__info -> dt - dd (Краткая инфа)
+.seller-details__text -> innerText (Описание продавца)
+.card__package-title + .card__package-item (Список фишек)
+.gallery__thumb-item -> data-href (Список фотографий)
+.card__sold-time-header -> innerText (Время со дня размещения до продажи)
+.card__stat-item -> 1 -> innerText (Дата размещения)
+.breadcrumbs-item -> innerText (Классификация человеко-читаемая. mark -> model -> super_gen -> configuration_id -> tech_param_id)
 */
 
 /*
@@ -31,15 +35,22 @@ function zip(a, b) {
   return Array.from({ length: Math.max(a.length, b.length) }).map((_, index) => [a[index], b[index]])
 }
 
+function sort(a, b) {
+  const lengthDiff = a.length - b.length
+  if (lengthDiff != 0) return lengthDiff
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
 const links = []
-  .concat(...fs.readdirSync('links').map(filename => fs.readFileSync(`links/${filename}`, 'utf-8').split('\n')))
+  .concat(...fs.readdirSync('links').sort(sort).map(filename => fs.readFileSync(`links/${filename}`, 'utf-8').split('\n')))
   .filter(link => link)
 
 const result = {}
 
 bluebird.each(links, link =>
-  request.get({ uri: link, headers: { Cookie: 'los=yes' } })
-  .then(res => {
+  request.get({ uri: link, headers: { Cookie: 'los=yes' } }).then(res => {
     console.log(link)
     const $ = cheerio.load(res)
     const [id] = link
@@ -48,7 +59,7 @@ bluebird.each(links, link =>
       .slice(-1)[0]
       .split('-')
 
-    if (result[id]) throw new Error(`Already have this id: ${id}`)
+    if (result[id]) return console.log(`Already have this id: ${id}`)
 
     const { 'sale-data-attributes': saleData } = JSON.parse($('#sale-data-attributes').attr('data-bem'))
     const { 'breadcrumbs-item': { callParams: { data: carCategory } } } = JSON.parse(
@@ -73,13 +84,45 @@ bluebird.each(links, link =>
         }),
         {},
       )
+    const images = $('.gallery__thumb-item')
+      .toArray()
+      .map(itemEl => $(itemEl).attr('data-href'))
+    const soldFor = $('.card__sold-time-header').text()
+    const onSaleFrom = $('.card__stat-item')
+      .eq(1)
+      .text()
+    const categoryDesc = $('.breadcrumbs-item')
+      .toArray()
+      .map(itemEl => $(itemEl))
+      .reduce(
+        (desc, $itemEl) => ({
+          ...desc,
+          [JSON.parse($itemEl.attr('data-bem'))
+            ['breadcrumbs-item'].callParams.block.replace('breadcrumbs-', '')
+            .slice(0, -1)]: $itemEl.find('a').text(),
+        }),
+        {},
+      )
 
-    result[id] = {
-      sellerDetails,
-      ...saleData,
-      ...carCategory,
-      ...cardInfo,
-      ...cardPackage
-    }
-  }),
-).then(() => fs.writeFileSync('desc.json', JSON.stringify(result, null, 2)))
+    result[id] = true
+
+    fs.writeFileSync(
+      `desc/${id}.json`,
+      JSON.stringify(
+        {
+          images,
+          soldFor,
+          onSaleFrom,
+          sellerDetails,
+          cardInfo,
+          carCategory,
+          categoryDesc,
+          cardPackage,
+          ...saleData,
+        },
+        null,
+        2,
+      ),
+    )
+  }).catch(error => console.log(`Failed to get car info: ${error.message}`)),
+)
