@@ -1,12 +1,14 @@
 // @flow
 
-// https://auto.ru/cars/used/sale/${марка}/${модель}/${id}-${какой-то хеш}/
-
-const fs = require('fs')
 const bluebird = require('bluebird')
 const cheerio = require('cheerio')
 const request = require('request-promise')
 
+const withRetry = require('./retry')
+
+const priceStep = 5000
+const listingUrl = 'https://auto.ru/-/ajax/listing'
+const headers = { Cookie: 'los=yes' }
 const query = {
   category: 'cars',
   section: 'used',
@@ -20,45 +22,70 @@ const query = {
   output_type: 'list'
 }
 
-const from = 0
-
-const prices = Array.from({ length: 1000 }).map((_, index) => ({
-  price_from: index * 5000,
-  price_to: (index + 1) * 5000 - 1
-}))
-.filter(price => price.price_from >= from)
-
-bluebird.each(prices, price => {
-  let current = 0
-  function byPage(page) {
-    current = page
-    console.log(`${price.price_from}-${price.price_to}_${current}`)
-
-    return {
-      url: 'https://auto.ru/-/ajax/listing',
-      qs: Object.assign({ page_num_offers: page }, price, query),
-      headers: {
-        Cookie: 'los=yes'
-      }
-    }
+function priceQuery(stepCount) {
+  return {
+    price_from: stepCount * priceStep,
+    price_to: (stepCount + 1) * priceStep - 1
   }
+}
 
-  function parse(res) {
-    const $ = cheerio.load(res)
+function pageQuery(page) {
+  return { page_num_offers: page }
+}
 
-    fs.writeFileSync(
-      `links/${price.price_from}-${price.price_to}_${current}`,
-      $('.listing-item').toArray().map(element => $(element).children().first().find('.listing-item__link').attr('href')).join('\n')
-    )
-
-    return $
+function getLinksFromPage(index) {
+  return page => {
+    console.log(`Getting cars for price '${index * priceStep}' and page '${page}'`)
+    return request.get({
+      url: listingUrl,
+      qs: Object.assign({}, pageQuery(page), priceQuery(index), query),
+      headers
+    })
   }
+}
 
-  return request.get(byPage(1)).then(parse).then($ => {
-    if ($('.pager_has-more').length) {
-      const pages = JSON.parse($('.pager_has-more').attr('data-bem')).pager.max
+function withPager(requestFunc, parseFunc) {
+  return new bluebird((resolve, reject) => {
+    let pageCount = 1
 
-      return bluebird.each(Array.from({ length: pages - 1 }).map((_, index) => index + 2), page => request.get(byPage(page)).then(parse))
-    }
+    let pagerFunc = (links = [], page = 1) => requestFunc(page)
+      .then(parseFunc)
+      .then(({ linksFromPage, maxPage = pageCount }) => {
+        if (pageCount < maxPage) pageCount = maxPage
+        if (page == pageCount) return resolve([...links, ...linksFromPage])
+
+        pagerFunc([...links, ...linksFromPage], page + 1)
+      })
+      .catch(reject)
+
+    pagerFunc()
   })
-})
+}
+
+function parseContent(content /* :string */) {
+  const $ = cheerio.load(content)
+  let maxPage = 1
+
+  if ($('.pager_has-more').length) {
+    maxPage = JSON.parse($('.pager_has-more').attr('data-bem')).pager.max
+  }
+
+  const linksFromPage = $('.listing-item__link').toArray().map(element => $(element).attr('href'))
+
+  return { linksFromPage, maxPage }
+}
+
+function getIdFromLink(link /* :string */) {
+  return link.split('/').filter(s => s).slice(-1)[0].split('-')[0]
+}
+
+module.exports = function getCarLinks(index /* :number */) {
+  return withPager(withRetry(getLinksFromPage(index)), parseContent)
+  .then(links => {
+    const linksById = links.reduce((map, link) => map.set(getIdFromLink(link), link), new Map())
+
+    console.log(`Successful getted '${linksById.size}' cars for price '${index * priceStep}'`)
+
+    return linksById
+  })
+}
