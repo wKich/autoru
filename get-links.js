@@ -82,9 +82,9 @@ function getIdFromLink(link /* :string */) {
 module.exports = function getCarLinks(index /* :number */) {
   return withPager(withRetry(getLinksFromPage(index)), parseContent)
   .then(links => {
-    const linksById = links.reduce((map, link) => map.set(getIdFromLink(link), link), new Map())
+    const linksById = links.reduce((acc, link) => ({ ...acc, [getIdFromLink(link)]: link }), Object.create(null))
 
-    console.log(`Successful getted '${linksById.size}' cars for price '${index * priceStep}'`)
+    console.log(`Successful getted '${Object.keys(linksById).length}' cars for price '${index * priceStep}'`)
 
     return linksById
   })

@@ -32,43 +32,62 @@ server.listen(app.get('port'), () => {
   setInterval(() => request.get('https://autoru.herokuapp.com/_status').then(res => console.log(res)), 10 * 60 * 1000)
 })
 
-const {
-  DB_USER,
-  DB_PASS,
-  DB_HOST,
-  DB_PORT,
-  DB_NAME,
-} = process.env
+function readList() {
+  const {
+    DB_USER,
+    DB_PASS,
+    DB_HOST,
+    DB_PORT,
+    DB_NAME,
+  } = process.env
 
-MongoClient.connect(
-  `mongodb://${
-    DB_USER || 'user'
-  }:${
-    DB_PASS || 'password'
-  }@${
-    DB_HOST || 'localhost'
-  }:${
-    DB_PORT || '27017'
-  }/${
-    DB_NAME || 'dbName'
-  }`).then(db => {
-  db.close()
-})
+  MongoClient.connect(
+    `mongodb://${
+      DB_USER || 'user'
+    }:${
+      DB_PASS || 'password'
+    }@${
+      DB_HOST || 'localhost'
+    }:${
+      DB_PORT || '27017'
+    }/${
+      DB_NAME || 'dbName'
+    }`
+  )
+  .then(db => {
+    const carsCollection = db.collection('cars')
 
-bluebird.all([
-  //mongodb.get(oldLinks)
-  bluebird.reduce(Array.from({ length: 1000 }), (links, index) => getLinks(index).then(part => part.forEach(links.set.bind(links))), new Map()),
-])
-.then(([links, nextLinks]) => {
-  const addedLinks = new Map(Array.from(nextLinks.entries()).filter(id => !links.has(id)))
-  const removedLinks = new Map(Array.from(links.entries()).filter(id => !nextLinks.has(id)))
+    bluebird.all([
+      carsCollection.find({ recent: true }).toArray().then(cars => cars.reduce((links, car) => ({ ...links, [car.id]: car.link }), Object.create(null))),
+      bluebird.reduce(Array.from({ length: 50 }), (links, _, index) => getLinks(index).then(part => ({ ...links, ...part }), Object.create(null))),
+    ])
+    .then(([links, nextLinks]) => {
+      const addedIds = Object.keys(nextLinks).filter(id => !(id in links))
+      const removedIds = Object.keys(links).filter(id => !(id in nextLinks))
 
-  getDesc(addedLinks)//.filter(x => x).then(result => mongodb.save(result))
-  getDesc(removedLinks)//.then(result => mongodb.update(result))
+      return bluebird.map(removedIds, id => getDesc(links[id]).then(desc => [id, desc]))
+        .then(removedCars =>
+          bluebird.all(
+            removedCars.map(
+              ([id, desc]) => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } })
+            )
+          )
+        )
+        .then(() =>
+          bluebird.filter(addedIds.map(id => getDesc(nextLinks[id]).then(desc => [id, desc])), ([, desc]) => desc)
+            .then(addedCars => carsCollection.insertMany(addedCars.map(([id, desc]) => ({ id, ...desc }))))
+            .then(() => carsCollection.updateMany({ $or: nextLinks.map(([id]) => ({ id })) }, { $set: { recent: true } }))
+        )
+    })
+    .then(() => {
+      db.close()
+      setTimeout(readList, 3600)
+    })
+  })
+}
 
-  // car removed
-  // car sold
-})
+readList()
+
 
 // Делать запросы в 6 утра на список машинок
 // Получать новые и удаленные/проданные машинки
