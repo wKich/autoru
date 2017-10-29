@@ -65,16 +65,17 @@ function readList() {
       const addedIds = Object.keys(nextLinks).filter(id => !(id in links))
       const removedIds = Object.keys(links).filter(id => !(id in nextLinks))
 
-      return bluebird.map(removedIds, id => getDesc(links[id]).then(desc => [id, desc]))
+      return bluebird.map(removedIds, id => getDesc(links[id]).then(desc => [id, desc]), { concurrency: 1 })
         .then(removedCars =>
-          bluebird.all(
-            removedCars.map(
-              ([id, desc]) => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } })
-            )
+          bluebird.map(
+            removedCars,
+            ([id, desc]) => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } }),
+            { concurrency: 1 }
           )
         )
         .then(() =>
-          bluebird.filter(addedIds.map(id => getDesc(nextLinks[id]).then(desc => [id, desc])), ([, desc]) => desc)
+          bluebird.map(addedIds, id => getDesc(nextLinks[id]).then(desc => [id, desc]), { concurrency: 1 })
+            .then(addedCars => addedCars.filter(([, desc]) => desc))
             .then(addedCars => carsCollection.insertMany(addedCars.map(([id, desc]) => ({ id, ...desc }))))
             .then(() => carsCollection.updateMany({ $or: nextLinks.map(([id]) => ({ id })) }, { $set: { recent: true } }))
         )
