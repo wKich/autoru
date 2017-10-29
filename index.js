@@ -97,7 +97,7 @@ function readList() {
     })
     .then(() => {
       db.close()
-      setTimeout(readList, 3600)
+      setTimeout(readList, 3600 * 1000)
     })
   })
 }
