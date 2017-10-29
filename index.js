@@ -55,6 +55,10 @@ function readList() {
     }`
   )
   .then(db => {
+    // TODO Add info about added cars and removed cars
+    // TODO Remove parsing log output
+    // TODO Add step info output
+    // TODO output counter of progress
     const carsCollection = db.collection('cars')
 
     bluebird.all([
@@ -65,20 +69,31 @@ function readList() {
       const addedIds = Object.keys(nextLinks).filter(id => !(id in links))
       const removedIds = Object.keys(links).filter(id => !(id in nextLinks))
 
-      return bluebird.map(removedIds, id => getDesc(links[id]).then(desc => [id, desc]), { concurrency: 1 })
-        .then(removedCars =>
-          bluebird.map(
-            removedCars,
-            ([id, desc]) => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } }),
-            { concurrency: 1 }
-          )
+      console.log(`Gettings description for removed cars: ${removedIds.length}`)
+      return bluebird.each(
+        removedIds,
+        (id, index) => {
+          console.log(`Getting car info by link '${links[id]}'. ${index + 1} of ${removedIds.length}`)
+          return getDesc(links[id])
+            .then(desc => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } }))
+          }, { concurrency: 1 }
         )
-        .then(() =>
-          bluebird.map(addedIds, id => getDesc(nextLinks[id]).then(desc => [id, desc]), { concurrency: 1 })
-            .then(addedCars => addedCars.filter(([, desc]) => desc))
-            .then(addedCars => carsCollection.insertMany(addedCars.map(([id, desc]) => ({ id, ...desc }))))
-            .then(() => carsCollection.updateMany({ $or: nextLinks.map(([id]) => ({ id })) }, { $set: { recent: true } }))
-        )
+        .then(() => {
+          console.log(`Gettings description for added cars: ${addedIds.length}`)
+          return bluebird.each(
+            addedIds,
+            (id, index) => {
+              console.log(`Getting car info by link '${nextLinks[id]}'. ${index + 1} of ${addedIds.length}`)
+              getDesc(nextLinks[id])
+              .then(desc => {
+                if (!desc) return
+                return carsCollection.insert({ id, ...desc, recent: true })
+              })
+            }, { concurrency: 1 })
+            //.then(addedCars => addedCars.filter(([, desc]) => desc))
+            //.then(addedCars => carsCollection.insertMany(addedCars.map(([id, desc]) => ({ id, ...desc, recent: true }))))
+            //.then(() => carsCollection.updateMany({ $or: nextLinks.map(([id]) => ({ id })) }, { $set: { recent: true } }))
+        })
     })
     .then(() => {
       db.close()

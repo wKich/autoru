@@ -36,7 +36,6 @@ const { StatusCodeError } = require('request-promise/errors')
 const withRetry = require('./retry')
 
 const getCarInfo = withRetry(link => {
-  console.log(`Getting car info by link '${link}'`)
   return request.get({ uri: link, headers: { Cookie: 'los=yes' } })
   .catch(StatusCodeError, error => {
     if (error.statusCode == 404) {
@@ -110,7 +109,6 @@ module.exports = function getCarDescription(link /* :string */) {
   .then(content => {
     if (content == null) return null
 
-    console.log(`Parsing car info from link '${link}'`)
     const $ = cheerio.load(content)
 
     return {
