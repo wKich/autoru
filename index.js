@@ -84,7 +84,7 @@ function readList() {
             addedIds,
             (id, index) => {
               console.log(`Getting car info by link '${nextLinks[id]}'. ${index + 1} of ${addedIds.length}`)
-              getDesc(nextLinks[id])
+              return getDesc(nextLinks[id])
               .then(desc => {
                 if (!desc) return
                 return carsCollection.insert({ id, ...desc, recent: true })
