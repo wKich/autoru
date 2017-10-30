@@ -41,7 +41,7 @@ function readList() {
     DB_NAME,
   } = process.env
 
-  MongoClient.connect(
+  return MongoClient.connect(
     `mongodb://${
       DB_USER || 'user'
     }:${
@@ -55,15 +55,11 @@ function readList() {
     }`
   )
   .then(db => {
-    // TODO Add info about added cars and removed cars
-    // TODO Remove parsing log output
-    // TODO Add step info output
-    // TODO output counter of progress
     const carsCollection = db.collection('cars')
 
     bluebird.all([
       carsCollection.find({ recent: true }).toArray().then(cars => cars.reduce((links, car) => ({ ...links, [car.id]: car.link }), Object.create(null))),
-      bluebird.reduce(Array.from({ length: 50 }), (links, _, index) => getLinks(index).then(part => ({ ...links, ...part }), Object.create(null))),
+      bluebird.reduce(Array.from({ length: 1000 }), (links, _, index) => getLinks(index).then(part => ({ ...links, ...part }), Object.create(null))),
     ])
     .then(([links, nextLinks]) => {
       const addedIds = Object.keys(nextLinks).filter(id => !(id in links))
@@ -75,7 +71,12 @@ function readList() {
         (id, index) => {
           console.log(`Getting car info by link '${links[id]}'. ${index + 1} of ${removedIds.length}`)
           return getDesc(links[id])
-            .then(desc => carsCollection.update({ id }, { $set: desc ? { ...desc, recent: false, sold: true } : { ...desc, recent: false, removed: true } }))
+            .then(desc => {
+              const updateQuery = { $set: { ...desc, recent: false, updatedTimestamp: Date.now() } }
+              if (desc == null) updateQuery.$set.removed = true
+              else if (desc.soldFor != '') updateQuery.$set.sold = true
+              return carsCollection.update({ id }, updateQuery)
+            })
           }, { concurrency: 1 }
         )
         .then(() => {
@@ -87,24 +88,22 @@ function readList() {
               return getDesc(nextLinks[id])
               .then(desc => {
                 if (!desc) return
-                return carsCollection.insert({ id, ...desc, recent: true })
+                return carsCollection.insert({ id, ...desc, recent: true, addedTimestamp: Date.now() })
               })
             }, { concurrency: 1 })
-            //.then(addedCars => addedCars.filter(([, desc]) => desc))
-            //.then(addedCars => carsCollection.insertMany(addedCars.map(([id, desc]) => ({ id, ...desc, recent: true }))))
-            //.then(() => carsCollection.updateMany({ $or: nextLinks.map(([id]) => ({ id })) }, { $set: { recent: true } }))
         })
     })
-    .then(() => {
-      db.close()
-      setTimeout(readList, 3600 * 1000)
-    })
+    .then(() => db.close())
   })
 }
 
-readList()
-
-
-// Делать запросы в 6 утра на список машинок
-// Получать новые и удаленные/проданные машинки
-//
+let running = false
+let interval = setInterval(() => {
+  const nowHours = new Date().getUTCHours()
+  if (nowHours == 0 && running == false) {
+    running = true
+    readList()
+    .then(() => running = false)
+    .catch(() => setTimeout(() => running = false, 3600 * 1000))
+  }
+}, 60 * 1000)
