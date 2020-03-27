@@ -55,6 +55,7 @@ function readList() {
     }`
   )
   .then(db => {
+    // TODO Cars with same id may added twice
     const carsCollection = db.collection('cars')
 
     bluebird.all([
