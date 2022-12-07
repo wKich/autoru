@@ -16,7 +16,7 @@
   "dependencies": {
     "bluebird": "^3.5.1",
     "cheerio": "^1.0.0-rc.2",
-    "express": "^4.16.2",
+    "express": "^4.17.3",
     "mongodb": "^2.2.33",
     "request": "^2.83.0",
     "request-promise": "^4.2.2",
